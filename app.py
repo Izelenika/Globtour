@@ -1743,7 +1743,7 @@ def driver_statistics_detail_excel():
     c=db()
     try:
         try:
-            rows=c.execute("SELECT * FROM schedule ORDER BY date,id").fetchall()
+            rows=c.execute("SELECT * FROM schedules ORDER BY date,id").fetchall()
         except Exception:
             rows=c.execute("SELECT * FROM schedules ORDER BY date,id").fetchall()
         try:
@@ -1856,7 +1856,7 @@ def driver_statistics_detail():
     c=db()
     try:
         try:
-            rows=c.execute("SELECT * FROM schedule ORDER BY date,id").fetchall()
+            rows=c.execute("SELECT * FROM schedules ORDER BY date,id").fetchall()
         except Exception:
             rows=c.execute("SELECT * FROM schedules ORDER BY date,id").fetchall()
 
@@ -3360,12 +3360,9 @@ def driver_statistics():
 
     # Read all schedule rows and apply the date range in Python so older/newer DB schemas work.
     try:
-        schedule_rows=c.execute("SELECT * FROM schedule ORDER BY date,id").fetchall()
+        schedule_rows=c.execute("SELECT * FROM schedules ORDER BY date,id").fetchall()
     except Exception:
-        try:
-            schedule_rows=c.execute("SELECT * FROM schedules ORDER BY date,id").fetchall()
-        except Exception:
-            schedule_rows=[]
+        schedule_rows=[]
 
     # Lines for duration/return calculations.
     try:
