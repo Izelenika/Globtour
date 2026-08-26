@@ -784,11 +784,29 @@ def enrich_free_ride_rows(conn, rows):
         except Exception:
             pass
 
-        # Older free rides can have amount=0 although item rows contain the
-        # actual KM × price calculation. Recalculate for display.
+        # Prvo prikaži iznos koji je stvarno obračunat na predračunu.
+        # Iznos predračuna može biti spremljen u zaglavlju ili samo u stavkama.
         try:
             current=_num(data.get("amount"))
             if current <= 0:
+                proforma=conn.execute(
+                    """SELECT p.amount AS amount,
+                               COALESCE((SELECT SUM(COALESCE(pi.amount,0))
+                                         FROM proforma_items pi
+                                         WHERE pi.proforma_id=p.id),0) AS items_total
+                        FROM proformas p
+                        WHERE p.free_ride_id=?
+                        ORDER BY p.id DESC LIMIT 1""",
+                    (data.get("id"),)
+                ).fetchone()
+                if proforma:
+                    total=max(_num(proforma["amount"]), _num(proforma["items_total"]))
+                    if total > 0:
+                        data["amount"]=total
+                        current=total
+
+            # Ako nema predračuna, koristi iznos iz stavki slobodne vožnje.
+            if _num(data.get("amount")) <= 0:
                 total_row=conn.execute(
                     """SELECT COALESCE(SUM(
                            CASE
@@ -2173,6 +2191,7 @@ def free_rides_export():
             return ' '.join(value.split())
         wanted=_norm_export_client(client)
         rows=[r for r in rows if wanted in _norm_export_client(r["client"])]
+    rows=enrich_free_ride_rows(c, rows)
     c.close()
     wb=Workbook(); ws=wb.active
     titles={"reserved":"REZERVIRANE VOŽNJE","realized":"REALIZIRANE VOŽNJE","paid":"PLAĆENE VOŽNJE","unpaid":"NEPLAĆENE VOŽNJE"}
