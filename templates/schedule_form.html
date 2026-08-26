@@ -165,20 +165,6 @@
 })();
 </script>
 
-<div class="panel" style="margin-top:18px;padding:16px">
-<label style="display:flex;gap:8px;align-items:center;font-weight:700"><input type="checkbox" id="add_return" name="add_return" value="1"> 🔄 Dodaj povratak (samo za statistiku)</label>
-<div id="returnBox" style="display:none;margin-top:14px" class="grid">
-<div class="field"><label>Datum povratka</label><input type="date" name="return_trip_date" value="{{row.date if row else today}}"></div>
-<div class="field"><label>Povratna linija</label><select name="return_line"><option value="">Odaberi povratnu liniju</option>{% for x in internal_lines|default([]) %}<option value="{{x.name}}">{{x.name}} — {{x.departure}}</option>{% endfor %}</select>{% if not internal_lines %}<small class="muted">Nema označenih povratnih linija. U izborniku Linije označi liniju kao „Povratna / interna linija – samo za statistiku“.</small>{% endif %}</div>
-<div class="field"><label>Vozač 1</label><input name="return_driver1"></div>
-<div class="field"><label>Vozač 2</label><input name="return_driver2"></div>
-<div class="field"><label>Vozilo</label><input name="return_vehicle"></div>
-</div></div>
-<script>
-(function(){const cb=document.getElementById('add_return'),box=document.getElementById('returnBox');
-function sync(){box.style.display=cb.checked?'grid':'none';if(cb.checked){document.querySelector('[name=return_driver1]').value=document.querySelector('[name=driver1]').value;document.querySelector('[name=return_driver2]').value=document.querySelector('[name=driver2]').value;document.querySelector('[name=return_vehicle]').value=document.querySelector('[name=vehicle]').value;}}
-cb.addEventListener('change',sync);})();
-</script>
 <div class="field"><label>Napomena</label><textarea name="note" rows="3">{{row.note if row else ''}}</textarea></div>
 <button class="btn">Spremi</button></form></div>
 
