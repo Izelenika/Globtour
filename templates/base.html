@@ -191,7 +191,15 @@ html[data-theme="dark"] a.btn.excel-export-btn{
     <span class="sidebar-copy">Globtour Međugorje</span>
   </div>
 </aside>
-<button class="sidebar-toggle" type="button" onclick="document.body.classList.toggle('sidebar-collapsed')" aria-label="Sakrij izbornik">‹</button>
+<div class="mobile-backdrop" onclick="closeMobileMenu()"></div>
+<header class="mobile-header">
+  <button class="mobile-menu-btn" type="button" onclick="toggleMobileMenu()" aria-label="Otvori izbornik" aria-controls="main-navigation">☰</button>
+  <a href="/" class="mobile-brand" aria-label="Globtour početna">
+    <img src="{{url_for('static',filename='globtour-bird.png')}}" alt="Globtour">
+    <span><b>globtour</b><small>Međugorje</small></span>
+  </a>
+</header>
+<button class="sidebar-toggle" type="button" onclick="toggleSidebar()" aria-label="Sakrij izbornik">‹</button>
 
 <main class="wrap">{% with messages=get_flashed_messages(with_categories=true) %}{% for cat,msg in messages %}<div class="alert alert-{{cat}}">{{msg}}</div>{% endfor %}{% endwith %}{% block content %}{% endblock %}</main>
 <script>
@@ -200,6 +208,13 @@ html[data-theme="dark"] a.btn.excel-export-btn{
   if(saved==='dark') document.body.classList.add('dark-mode');
   updateThemeButton();
 })();
+function toggleSidebar(){
+  if(window.matchMedia('(max-width: 900px)').matches){ toggleMobileMenu(); return; }
+  document.body.classList.toggle('sidebar-collapsed');
+}
+function toggleMobileMenu(){ document.body.classList.toggle('mobile-menu-open'); }
+function closeMobileMenu(){ document.body.classList.remove('mobile-menu-open'); }
+document.addEventListener('keydown',function(e){ if(e.key==='Escape') closeMobileMenu(); });
 function toggleTheme(){
   document.body.classList.toggle('dark-mode');
   const dark=document.body.classList.contains('dark-mode');
