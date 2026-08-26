@@ -1639,10 +1639,7 @@ def driver_statistics_excel():
     # Reuse the statistics page logic by collecting summary from the schedule table.
     c=db()
     try:
-        try:
-            sched=c.execute("SELECT * FROM schedule").fetchall()
-        except Exception:
-            sched=c.execute("SELECT * FROM schedules").fetchall()
+        sched=c.execute("SELECT * FROM schedules").fetchall()
         try:
             lines=c.execute("SELECT * FROM lines").fetchall()
         except Exception:
@@ -1742,10 +1739,7 @@ def driver_statistics_detail_excel():
 
     c=db()
     try:
-        try:
-            rows=c.execute("SELECT * FROM schedules ORDER BY date,id").fetchall()
-        except Exception:
-            rows=c.execute("SELECT * FROM schedules ORDER BY date,id").fetchall()
+        rows=c.execute("SELECT * FROM schedules ORDER BY date,id").fetchall()
         try:
             lines=c.execute("SELECT * FROM lines").fetchall()
         except Exception:
@@ -1855,10 +1849,7 @@ def driver_statistics_detail():
 
     c=db()
     try:
-        try:
-            rows=c.execute("SELECT * FROM schedules ORDER BY date,id").fetchall()
-        except Exception:
-            rows=c.execute("SELECT * FROM schedules ORDER BY date,id").fetchall()
+        rows=c.execute("SELECT * FROM schedules ORDER BY date,id").fetchall()
 
         try:
             lines=c.execute("SELECT * FROM lines").fetchall()
