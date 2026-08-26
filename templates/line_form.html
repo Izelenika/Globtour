@@ -14,7 +14,7 @@
 <div class="field"><label>Status</label><select name="active"><option value="Da" {% if not row or row.active=="Da" %}selected{% endif %}>Aktivna</option><option value="Ne" {% if row and row.active=="Ne" %}selected{% endif %}>Neaktivna</option></select></div>
 <div class="field"><label>Trajanje linije (dana)</label><input type="number" min="1" name="duration_days" value="{{row.duration_days if row and row.duration_days else 1}}"></div><div class="field"><label>Trajanje vožnje — sati</label><input type="number" min="0" step="1" name="duration_hours_int" value="{{row.duration_hours_int if row and row.duration_hours_int is not none else (row.duration_hours|int if row and row.duration_hours is not none else 0)}}" placeholder="npr. 17"></div>
 <div class="field"><label>Trajanje vožnje — minute</label><input type="number" min="0" max="59" step="1" name="duration_minutes" value="{{row.duration_minutes if row and row.duration_minutes is not none else 0}}" placeholder="npr. 20"></div>
-<div class="field" style="display:flex;align-items:end"><label style="display:flex;gap:9px;align-items:center;padding:12px 0"><input type="checkbox" name="internal_return" value="1" {% if row and row.internal_return %}checked{% endif %}> Povratna / interna linija – samo za statistiku</label></div></div>
+</div>
 <div class="field">
 <label style="font-weight:700">Dozvole</label>
 <div id="permits-container">
