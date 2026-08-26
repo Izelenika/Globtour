@@ -139,7 +139,6 @@ def ensure_return_schema():
         if "hidden_from_schedule" not in sc: c.execute("ALTER TABLE schedules ADD COLUMN hidden_from_schedule INTEGER NOT NULL DEFAULT 0")
         # Stari status "Demontirana - provjera" više se ne koristi:
         # svaka tako označena guma smatra se rashodovanom.
-        c.execute("UPDATE tires SET status='Rashod', warehouse=NULL, vehicle=NULL, position=NULL WHERE status='Demontirana - provjera'")
         c.execute("""CREATE TABLE IF NOT EXISTS free_rides (
             id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL DEFAULT 'reserved',
             client TEXT, relation TEXT, date_from TEXT, date_to TEXT, passengers TEXT,
@@ -148,8 +147,18 @@ def ensure_return_schema():
             issued_by TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )""")
         existing={r[1] for r in c.execute("PRAGMA table_info(free_rides)").fetchall()}
-        if "issued_by" not in existing:
-            c.execute("ALTER TABLE free_rides ADD COLUMN issued_by TEXT")
+        # Usklađivanje starijih postojećih SQLite baza s novijim poljima aplikacije.
+        # ALTER TABLE se izvršava samo ako stupac još ne postoji, tako da se podaci ne mijenjaju.
+        for col, typ in [
+            ("issued_by", "TEXT"),
+            ("price_per_km", "REAL DEFAULT 0"),
+            ("currency", "TEXT DEFAULT 'BAM'"),
+            ("payment_method", "TEXT DEFAULT 'account'"),
+            ("issue_date", "TEXT")
+        ]:
+            if col not in existing:
+                c.execute(f"ALTER TABLE free_rides ADD COLUMN {col} {typ}")
+                existing.add(col)
         c.commit()
     finally: c.close()
 
@@ -2065,6 +2074,14 @@ def save_free_ride_items(free_ride_id, form):
                      ORDER BY sort_order ASC,id ASC LIMIT 1""",(free_ride_id,)).fetchone()
     if first and first["item_date"]:
         c.execute("UPDATE free_rides SET date_from=? WHERE id=?",(first["item_date"],free_ride_id))
+    # Nakon spremanja stavki uskladi i glavni iznos/cijenu slobodne vožnje.
+    # Tako C-faktura, pregled vožnji i ostali dokumenti uvijek koriste novu cijenu.
+    summary=c.execute("""SELECT COALESCE(SUM(amount),0) AS total,
+                                COALESCE(MAX(price_per_km),0) AS price
+                         FROM free_ride_items WHERE free_ride_id=?""",(free_ride_id,)).fetchone()
+    if summary:
+        c.execute("UPDATE free_rides SET amount=?, price_per_km=? WHERE id=?",
+                  (_num(summary["total"]), _num(summary["price"]), free_ride_id))
     c.commit(); c.close()
 
 def get_free_ride_items(free_ride_id):
@@ -2630,6 +2647,7 @@ def c_invoice_edit(id):
                    request.form.get("driver2",""),request.form.get("document_no",""),request.form.get("issue_date") or None,amount,
                    request.form.get("notes",""),request.form.get("currency","BAM"),id))
         c.commit(); c.close()
+        # Stavke ponovno računaju cijenu prema odabranoj vrsti kupca i sinkroniziraju ukupni iznos.
         save_free_ride_items(id,request.form)
         flash("Sve izmjene C-fakture su spremljene.","success")
         return redirect(url_for("c_invoice_view",id=id))
@@ -2965,7 +2983,18 @@ IBAN: BA39 154922 2000 717581'''
     pt.setStyle(TableStyle([("BOX",(0,0),(-1,-1),0.6,colors.black),("LINEBELOW",(0,0),(-1,0),0.4,colors.grey),("VALIGN",(0,0),(-1,-1),"MIDDLE"),("SPAN",(0,0),(0,1)),("PADDING",(0,0),(-1,-1),6)]))
     story += [pt, Spacer(1,6*mm)]
 
-    headers=["Datum","Opis / Description","KM UK.","BIH","HR","INO","CIJENA / km","OSNOV PDV BIH","OSNOV PDV HR","PDV BIH","PDV HR","NEOPOREZ.","UKUPNO"]
+    # Zaglavlja kao Paragraph omogućuju prijelom teksta unutar stupca,
+    # tako da se duga zaglavlja ne lijepe jedno za drugo.
+    header_style=ParagraphStyle(
+        "ProformaTableHeader", parent=small, alignment=TA_CENTER,
+        fontName=base_bold, fontSize=5.8, leading=6.6
+    )
+    header_labels=[
+        "Datum", "Opis /<br/>Description", "KM<br/>UK.", "BIH", "HR", "INO",
+        "CIJENA<br/>/ km", "OSNOV<br/>PDV BIH", "OSNOV<br/>PDV HR",
+        "PDV<br/>BIH", "PDV<br/>HR", "NEOPOREZ.", "UKUPNO"
+    ]
+    headers=[Paragraph(h,header_style) for h in header_labels]
     data=[headers]
     sums={"ob":0.0,"oh":0.0,"pb":0.0,"ph":0.0,"neo":0.0,"total":0.0}
     cur=r["currency"] or "BAM"
@@ -2981,7 +3010,7 @@ IBAN: BA39 154922 2000 717581'''
         for k,v in [("ob",ob),("oh",oh),("pb",pb),("ph",ph),("neo",neo),("total",total)]: sums[k]+=v
         data.append([str(it["item_date"] or ""),str(it["relation"] or ""),f"{kt:.0f}",f"{kb:.0f}",f"{kh:.0f}",f"{ki:.0f}",f"{p:.2f} {cur}",f"{ob:.2f}",f"{oh:.2f}",f"{pb:.2f}",f"{ph:.2f}",f"{neo:.2f}",f"{total:.2f}"])
     data.append(["","UKUPNO","","","","","",f"{sums['ob']:.2f}",f"{sums['oh']:.2f}",f"{sums['pb']:.2f}",f"{sums['ph']:.2f}",f"{sums['neo']:.2f}",f"{sums['total']:.2f} {cur}"])
-    widths=[16*mm,34*mm,11*mm,8*mm,8*mm,8*mm,16*mm,16*mm,16*mm,12*mm,12*mm,15*mm,18*mm]
+    widths=[15*mm,32*mm,10*mm,7*mm,7*mm,7*mm,17*mm,17*mm,17*mm,12*mm,12*mm,15*mm,18*mm]
     tb=Table(data,colWidths=widths,repeatRows=1)
     tb.setStyle(TableStyle([("GRID",(0,0),(-1,-1),0.35,colors.black),("BACKGROUND",(0,0),(-1,0),colors.HexColor("#EDEDED")),("FONTNAME",(0,0),(-1,0),base_bold),("FONTNAME",(0,-1),(-1,-1),base_bold),("ALIGN",(0,0),(-1,0),"CENTER"),("ALIGN",(2,1),(-1,-1),"RIGHT"),("VALIGN",(0,0),(-1,-1),"MIDDLE"),("FONTSIZE",(0,0),(-1,-1),6.2),("LEADING",(0,0),(-1,-1),7.5),("TOPPADDING",(0,0),(-1,-1),4),("BOTTOMPADDING",(0,0),(-1,-1),4),("LEFTPADDING",(0,0),(-1,-1),2),("RIGHTPADDING",(0,0),(-1,-1),2)]))
     story += [tb, Spacer(1,6*mm)]
