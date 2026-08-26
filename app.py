@@ -93,6 +93,9 @@ try:
     _scols=[r[1] for r in _c.execute("PRAGMA table_info(schedules)").fetchall()]
     for _col,_typ in [("is_return","INTEGER NOT NULL DEFAULT 0"),("return_of","INTEGER"),("hidden_from_schedule","INTEGER NOT NULL DEFAULT 0")]:
         if _col not in _scols: _c.execute(f"ALTER TABLE schedules ADD COLUMN {_col} {_typ}")
+    # Legacy internal return lines are now ordinary lines and can be scheduled separately.
+    if "internal_return" in _lcols:
+        _c.execute("UPDATE lines SET internal_return=0 WHERE COALESCE(internal_return,0)<>0")
     _c.commit()
     _c.close()
 except Exception:
@@ -614,12 +617,6 @@ def statistics_schedule_row_is_current(row, line_map):
             return False
     except Exception:
         pass
-    try:
-        if int(line["internal_return"] or 0):
-            return False
-    except Exception:
-        pass
-
     # source_date identifies the schedule batch that created the row.
     # A D0 line belongs to source_date, while a D+1 line belongs to source_date + 1.
     if "source_date" in keys and row["source_date"]:
@@ -639,7 +636,7 @@ def planned_rows_for_dates(c, selected):
  from datetime import timedelta
  next_day=selected+timedelta(days=1)
  lines=c.execute("""SELECT * FROM lines
-                    WHERE active='Da' AND group_type IN ('D0','D+1') AND COALESCE(internal_return,0)=0
+                    WHERE active='Da' AND group_type IN ('D0','D+1')
                     ORDER BY departure,name""").fetchall()
  saved=c.execute("""SELECT * FROM schedules
                     WHERE date IN (?,?)
@@ -3857,7 +3854,7 @@ def schedule():
 def form_data(c):
  return (c.execute("SELECT * FROM drivers WHERE active='Da' ORDER BY name").fetchall(),
          c.execute("SELECT * FROM vehicles WHERE active='Da' ORDER BY registration").fetchall(),
-         c.execute("SELECT * FROM lines WHERE active='Da' AND COALESCE(internal_return,0)=0 ORDER BY name").fetchall())
+         c.execute("SELECT * FROM lines WHERE active='Da' ORDER BY name").fetchall())
 def normalize_vehicle_value(value):
     if value is None:
         return ""
@@ -3920,12 +3917,6 @@ def fill_planned():
  c=db()
  row=c.execute("SELECT * FROM lines WHERE TRIM(name)=TRIM(?) AND active='Da' LIMIT 1",(line,)).fetchone()
  drivers,vehicles,lines=form_data(c)
- internal_lines=c.execute("""
-     SELECT * FROM lines
-     WHERE active='Da'
-       AND LOWER(COALESCE(CAST(internal_return AS TEXT),'0')) IN ('1','true','da','yes')
-     ORDER BY name
-    """).fetchall()
  if not row:
   c.close()
   return "Linija nije pronađena",404
@@ -3953,25 +3944,13 @@ def fill_planned():
    planned={"date":d,"line":row["name"],"time":t,"driver1":d1,"driver2":d2,
             "vehicle":v,"note":note,"group_name":row["schedule_day"],"source_date":source_date}
    return render_template("schedule_form.html",mode="add",row=planned,
-                          drivers=drivers,vehicles=vehicles,lines=lines,internal_lines=internal_lines,
+                          drivers=drivers,vehicles=vehicles,lines=lines,
                           return_date=return_date,driver_conflict_warning=warning)
   else:
    c.execute("""INSERT INTO schedules
                 (date,line,time,driver1,driver2,vehicle,note,group_name,source_date)
                 VALUES(?,?,?,?,?,?,?,?,?)""",
              (d,row["name"],t,d1,d2,v,note,group,source_date))
-   parent_id=c.execute("SELECT last_insert_rowid()").fetchone()[0]
-   if request.form.get("add_return"):
-    rdate=request.form.get("return_trip_date","").strip()
-    rline=request.form.get("return_line","").strip()
-    rd1=request.form.get("return_driver1","").strip() or d1
-    rd2=request.form.get("return_driver2","").strip() or d2
-    rv=normalize_vehicle_value(request.form.get("return_vehicle","")) or v
-    rr=c.execute("SELECT * FROM lines WHERE TRIM(name)=TRIM(?) AND COALESCE(internal_return,0)=1",(rline,)).fetchone()
-    if rr and rdate:
-     c.execute("""INSERT INTO schedules(date,line,time,driver1,driver2,vehicle,note,group_name,source_date,is_return,return_of,hidden_from_schedule)
-                  VALUES(?,?,?,?,?,?,?,?,?,?,?,1)""",
-               (rdate,rr["name"],rr["departure"] or "",rd1,rd2,rv,"Povratak","Povratak",source_date,1,parent_id))
    c.commit()
    c.close()
    flash("Raspored je dodan.","success")
@@ -3982,7 +3961,7 @@ def fill_planned():
            "group_name":row["schedule_day"],"source_date":source_date}
  return render_template("schedule_form.html",mode="add",row=planned,
                         drivers=drivers,vehicles=vehicles,lines=lines,
-                        internal_lines=internal_lines,return_date=return_date)
+                        return_date=return_date)
 
 @permission_required("schedule_edit")
 @app.route("/raspored/dodaj",methods=["GET","POST"])
@@ -4477,7 +4456,7 @@ def add_line():
   name=request.form.get("name","").strip();origin=request.form.get("origin","").strip();destination=request.form.get("destination","").strip()
   departure=request.form.get("departure","").strip();active=request.form.get("active","Da")
   group_type=request.form.get("group_type","D0").strip()
-  internal_return=1 if request.form.get("internal_return") else 0
+  internal_return=0
   duration_days=max(1,int(request.form.get("duration_days","1") or 1))
   duration_hours_int=max(0,int(request.form.get("duration_hours_int","0") or 0))
   duration_minutes=max(0,min(59,int(request.form.get("duration_minutes","0") or 0)))
@@ -4530,7 +4509,7 @@ def edit_line(id):
   name=request.form.get("name","").strip();origin=request.form.get("origin","").strip();destination=request.form.get("destination","").strip()
   departure=request.form.get("departure","").strip();active=request.form.get("active","Da")
   group_type=request.form.get("group_type","D0").strip()
-  internal_return=1 if request.form.get("internal_return") else 0
+  internal_return=0
   duration_days=max(1,int(request.form.get("duration_days","1") or 1))
   duration_hours_int=max(0,int(request.form.get("duration_hours_int","0") or 0))
   duration_minutes=max(0,min(59,int(request.form.get("duration_minutes","0") or 0)))
