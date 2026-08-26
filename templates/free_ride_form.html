@@ -31,7 +31,7 @@
   <input type="hidden" name="driver2" value="{{row.driver2 if row else ''}}">
 </div></div>
 <div class="field"><label>Status</label><select name="status"><option {% if row and row.status=='Rezervirano' %}selected{% endif %}>Rezervirano</option><option {% if row and row.status=='Potvrđeno' %}selected{% endif %}>Potvrđeno</option><option {% if row and row.status=='Otkazano' %}selected{% endif %}>Otkazano</option><option {% if row and row.status=='Realizirano' %}selected{% endif %}>Realizirano</option></select></div>
-<div class="field"><label>Valuta</label><select name="currency"><option value="BAM" {% if row and row.currency=="BAM" %}selected{% endif %}>BAM</option><option value="EUR" {% if row and row.currency=="EUR" %}selected{% endif %}>EUR</option></select></div></div>
+</div>
 
 <h3 style="margin-top:24px">Vožnje i kilometraža</h3>
 <div style="overflow-x:auto">
