@@ -584,6 +584,57 @@ def line_runs_on(line, target_date):
 def line_group(line):
     g=(line["group_type"] or "").strip()
     return g if g in ("D0","D+1") else "D0"
+
+def statistics_schedule_row_is_current(row, line_map):
+    """Return True only for a schedule row that still belongs to the active schedule."""
+    try:
+        keys=row.keys()
+    except Exception:
+        keys=[]
+
+    # Rows hidden from the normal schedule must not silently appear in statistics.
+    if "hidden_from_schedule" in keys:
+        try:
+            if int(row["hidden_from_schedule"] or 0):
+                return False
+        except Exception:
+            if str(row["hidden_from_schedule"] or "").strip().lower() in ("1","true","da","yes"):
+                return False
+
+    relation=next((str(row[c] or "").strip()
+                   for c in ("line","line_name","relation","route")
+                   if c in keys and row[c]), "")
+    line=line_map.get(relation)
+    if not line:
+        return False
+
+    # The line must still be an active normal schedule line.
+    try:
+        if str(line["active"] or "Da").strip().lower() in ("ne","0","false","no"):
+            return False
+    except Exception:
+        pass
+    try:
+        if int(line["internal_return"] or 0):
+            return False
+    except Exception:
+        pass
+
+    # source_date identifies the schedule batch that created the row.
+    # A D0 line belongs to source_date, while a D+1 line belongs to source_date + 1.
+    if "source_date" in keys and row["source_date"]:
+        try:
+            from datetime import datetime, timedelta
+            source=datetime.strptime(str(row["source_date"])[:10], "%Y-%m-%d").date()
+            row_date=datetime.strptime(str(next(row[c] for c in ("date","work_date","schedule_date","datum")
+                                                     if c in keys and row[c]))[:10], "%Y-%m-%d").date()
+            expected=source if line_group(line)=="D0" else source+timedelta(days=1)
+            if row_date != expected:
+                return False
+        except Exception:
+            return False
+
+    return True
 def planned_rows_for_dates(c, selected):
  from datetime import timedelta
  next_day=selected+timedelta(days=1)
@@ -1654,6 +1705,8 @@ def driver_statistics_excel():
 
     data={}
     for r in sched:
+        if not statistics_schedule_row_is_current(r, line_map):
+            continue
         keys=r.keys()
         raw_date=next((r[col] for col in ("date","work_date","schedule_date","datum") if col in keys and r[col]), None)
         if not raw_date: continue
@@ -1754,6 +1807,8 @@ def driver_statistics_detail_excel():
 
     result=[]
     for r in rows:
+        if not statistics_schedule_row_is_current(r, line_map):
+            continue
         keys=r.keys()
         raw_date=next((r[col] for col in ("date","work_date","schedule_date","datum")
                        if col in keys and r[col]), None)
@@ -3406,6 +3461,8 @@ def driver_statistics():
         })
 
     for r in schedule_rows:
+        if not statistics_schedule_row_is_current(r, line_map):
+            continue
         keys=r.keys()
         # Flexible date column names.
         raw_date=None
@@ -3552,6 +3609,8 @@ def vehicle_statistics():
 
     stats={}; details={}
     for r in schedule_rows:
+        if not statistics_schedule_row_is_current(r, line_map):
+            continue
         keys=r.keys()
         raw_date=next((r[col] for col in ("date","work_date","schedule_date","datum") if col in keys and r[col]),None)
         if not raw_date: continue
@@ -3639,6 +3698,8 @@ def vehicle_statistics_detail(registration):
     except Exception: f_from=date.today().replace(day=1); f_to=date.today()
     detail=[]; total_minutes=0; total_km=0; occupied=set()
     for r in rows:
+        if not statistics_schedule_row_is_current(r, line_map):
+            continue
         if str(r["date"] or "")[:10] < date_from or str(r["date"] or "")[:10] > date_to: continue
         vehicle=str(r["vehicle"] or "").strip()
         if vehicle != registration: continue
