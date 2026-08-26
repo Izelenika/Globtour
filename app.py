@@ -3542,10 +3542,9 @@ def vehicle_statistics():
     except Exception:
         vehicles=[]
     try:
-        schedule_rows=c.execute("SELECT * FROM schedule ORDER BY date,id").fetchall()
+        schedule_rows=c.execute("SELECT * FROM schedules ORDER BY date,id").fetchall()
     except Exception:
-        try: schedule_rows=c.execute("SELECT * FROM schedules ORDER BY date,id").fetchall()
-        except Exception: schedule_rows=[]
+        schedule_rows=[]
     try: lines=c.execute("SELECT * FROM lines").fetchall()
     except Exception: lines=[]
     c.close()
