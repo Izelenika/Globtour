@@ -774,7 +774,7 @@ def free_ride_first_date(conn, ride_id, fallback=None):
 
 
 def enrich_free_ride_rows(conn, rows):
-    """Ensure list views show the real issuer and total amount for free rides."""
+    """Ensure list views use the latest proforma amount and currency for free rides."""
     out=[]
     for row in rows:
         data=dict(row)
@@ -784,42 +784,43 @@ def enrich_free_ride_rows(conn, rows):
         except Exception:
             pass
 
-        # Prvo prikaži iznos koji je stvarno obračunat na predračunu.
-        # Iznos predračuna može biti spremljen u zaglavlju ili samo u stavkama.
         try:
-            current=_num(data.get("amount"))
-            if current <= 0:
-                proforma=conn.execute(
-                    """SELECT p.amount AS amount,
-                               COALESCE((SELECT SUM(COALESCE(pi.amount,0))
-                                         FROM proforma_items pi
-                                         WHERE pi.proforma_id=p.id),0) AS items_total
-                        FROM proformas p
-                        WHERE p.free_ride_id=?
-                        ORDER BY p.id DESC LIMIT 1""",
-                    (data.get("id"),)
-                ).fetchone()
-                if proforma:
-                    total=max(_num(proforma["amount"]), _num(proforma["items_total"]))
+            # Predračun je glavni izvor za iznos I valutu.
+            # Neovisno o starom obračunu spremljenom na vožnji, ako postoji
+            # predračun za vožnju, prikazuje se njegov iznos i njegova valuta.
+            proforma=conn.execute(
+                """SELECT p.amount AS amount,
+                           p.currency AS currency,
+                           COALESCE((SELECT SUM(COALESCE(pi.amount,0))
+                                     FROM proforma_items pi
+                                     WHERE pi.proforma_id=p.id),0) AS items_total
+                    FROM proformas p
+                    WHERE p.free_ride_id=?
+                    ORDER BY p.id DESC LIMIT 1""",
+                (data.get("id"),)
+            ).fetchone()
+
+            if proforma:
+                total=max(_num(proforma["amount"]), _num(proforma["items_total"]))
+                data["amount"]=total
+                data["currency"]=(str(proforma["currency"] or "").strip().upper() or "BAM")
+            else:
+                # Ako nema predračuna, koristi postojeći iznos ili izračun iz stavki.
+                if _num(data.get("amount")) <= 0:
+                    total_row=conn.execute(
+                        """SELECT COALESCE(SUM(
+                               CASE
+                                 WHEN COALESCE(amount,0)<>0 THEN amount
+                                 ELSE COALESCE(km_total,0)*COALESCE(price_per_km,0)
+                               END
+                           ),0) AS total
+                           FROM free_ride_items WHERE free_ride_id=?""",
+                        (data.get("id"),)
+                    ).fetchone()
+                    total=_num(total_row["total"] if total_row else 0)
                     if total > 0:
                         data["amount"]=total
-                        current=total
-
-            # Ako nema predračuna, koristi iznos iz stavki slobodne vožnje.
-            if _num(data.get("amount")) <= 0:
-                total_row=conn.execute(
-                    """SELECT COALESCE(SUM(
-                           CASE
-                             WHEN COALESCE(amount,0)<>0 THEN amount
-                             ELSE COALESCE(km_total,0)*COALESCE(price_per_km,0)
-                           END
-                       ),0) AS total
-                       FROM free_ride_items WHERE free_ride_id=?""",
-                    (data.get("id"),)
-                ).fetchone()
-                total=_num(total_row["total"] if total_row else 0)
-                if total > 0:
-                    data["amount"]=total
+                data["currency"]=(str(data.get("currency") or "").strip().upper() or "BAM")
         except Exception:
             pass
         out.append(data)
@@ -2197,14 +2198,14 @@ def free_rides_export():
     titles={"reserved":"REZERVIRANE VOŽNJE","realized":"REALIZIRANE VOŽNJE","paid":"PLAĆENE VOŽNJE","unpaid":"NEPLAĆENE VOŽNJE"}
     ws.title="Slobodne vožnje"; ws.merge_cells("A1:J1"); ws["A1"]=titles.get(kind,"SLOBODNE VOŽNJE")
     ws["A1"].font=Font(bold=True,size=14); ws["A1"].alignment=Alignment(horizontal="center")
-    headers=["Klijent","Relacija","Datum","Završetak","Vozilo","Vozač 1","Vozač 2","Status","Dokument","Iznos (€)"]
+    headers=["Klijent","Relacija","Datum","Završetak","Vozilo","Vozač 1","Vozač 2","Status","Dokument","Iznos","Valuta"]
     ws.append(headers)
     for cell in ws[2]:
         cell.font=Font(bold=True)
         cell.alignment=Alignment(horizontal="center")
     for r in rows:
-        ws.append([r["client"],r["relation"],r["date_from"],r["date_to"],r["vehicle"],r["driver1"],r["driver2"],r["status"] or r["payment_status"],r["document_no"],r["amount"]])
-    widths=[28,32,14,14,16,24,24,16,18,14]
+        ws.append([r["client"],r["relation"],r["date_from"],r["date_to"],r["vehicle"],r["driver1"],r["driver2"],r["status"] or r["payment_status"],r["document_no"],r["amount"],r.get("currency") or "BAM"])
+    widths=[28,32,14,14,16,24,24,16,18,14,10]
     for i,w in enumerate(widths,1): ws.column_dimensions[chr(64+i)].width=w
     for row in ws.iter_rows(): 
         for cell in row: cell.alignment=Alignment(vertical="center")
@@ -2849,7 +2850,7 @@ def proforma_new(ride_id):
                    float(request.form.get("amount") or 0),request.form.get("vat_text"),request.form.get("currency") or "BAM",
                    request.form.get("client_address"),request.form.get("client_city"),request.form.get("client_id"),request.form.get("client_vat_number"),km_total,
                    0,0,0,float(request.form.get("price_per_km") or 0),
-                   ("OBRAČUNAO: " + request.form.get("prepared_by","").strip() + "\n" + (request.form.get("note") or "")),"Otvoren",issuer_name))
+                   (request.form.get("note") or ""),"Otvoren",issuer_name))
         c.commit()
         pid=c.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
         c.close()
@@ -2985,9 +2986,9 @@ IBAN: BA39 154922 2000 717581'''
     tb.setStyle(TableStyle([("GRID",(0,0),(-1,-1),0.35,colors.black),("BACKGROUND",(0,0),(-1,0),colors.HexColor("#EDEDED")),("FONTNAME",(0,0),(-1,0),base_bold),("FONTNAME",(0,-1),(-1,-1),base_bold),("ALIGN",(0,0),(-1,0),"CENTER"),("ALIGN",(2,1),(-1,-1),"RIGHT"),("VALIGN",(0,0),(-1,-1),"MIDDLE"),("FONTSIZE",(0,0),(-1,-1),6.2),("LEADING",(0,0),(-1,-1),7.5),("TOPPADDING",(0,0),(-1,-1),4),("BOTTOMPADDING",(0,0),(-1,-1),4),("LEFTPADDING",(0,0),(-1,-1),2),("RIGHTPADDING",(0,0),(-1,-1),2)]))
     story += [tb, Spacer(1,6*mm)]
 
-    note_text=r["note"] or ""; prepared_by=""
+    note_text=r["note"] or ""; prepared_by=_stored_document_issuer(r)
     if note_text.startswith("OBRAČUNAO: "):
-        first,sep,rest=note_text.partition("\n"); prepared_by=first.replace("OBRAČUNAO: ","").strip(); note_text=rest if sep else ""
+        first,sep,rest=note_text.partition("\n"); prepared_by=first.replace("OBRAČUNAO: ","").strip() or prepared_by; note_text=rest if sep else ""
     if r["vat_text"]: story.append(Paragraph(f"<b>PDV:</b> {r['vat_text']}",normal))
     if note_text: story.append(Paragraph(f"<b>Napomena:</b> {note_text}",normal))
     story += [Spacer(1,8*mm),Paragraph(f"Obračunao: {prepared_by or '____________________'}",normal)]
@@ -3071,10 +3072,10 @@ def proforma_excel(id):
     ws.cell(total_row,8,sums["ob"]); ws.cell(total_row,9,sums["oh"])
     ws.cell(total_row,10,sums["pb"]); ws.cell(total_row,11,sums["ph"])
     ws.cell(total_row,12,sums["neo"]); ws.cell(total_row,13,sums["total"])
-    prepared_by=""
+    prepared_by=_stored_document_issuer(r)
     note_text=r["note"] or ""
     if note_text.startswith("OBRAČUNAO: "):
-        prepared_by=note_text.split("\n",1)[0].replace("OBRAČUNAO: ","").strip()
+        prepared_by=note_text.split("\n",1)[0].replace("OBRAČUNAO: ","").strip() or prepared_by
     ws.cell(total_row+1,1,f"Obračunao: {prepared_by or '____________________'}")
 
     thin=Side(style="thin")
@@ -3192,9 +3193,8 @@ def proforma_edit(id):
 
     if request.method=="POST":
         # Save ALL editable fields in one database transaction.
-        prepared_by=request.form.get("prepared_by","").strip()
         note=request.form.get("note","").strip()
-        stored_note=(f"OBRAČUNAO: {prepared_by}\\n{note}" if prepared_by else note)
+        stored_note=note
 
         km_bih=_num(request.form.get("km_bih"))
         km_hr=_num(request.form.get("km_hr"))
