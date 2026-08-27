@@ -143,14 +143,20 @@ html[data-theme="dark"] a.btn.excel-export-btn{
     </details>
 
 
-    <details class="side-group" {% if request.path.startswith('/kvarovi') %}open{% endif %}>
-      <summary><span class="side-icon main-nav-icon">⚠️</span><span>Kvarovi</span><span class="chevron">⌄</span></summary>
-      <div class="side-sub">
-        <a href="{{ url_for('breakdowns') }}">📋 Evidencija kvarova</a>
-        <a href="{{ url_for('breakdown_add') }}">➕ Prijavi kvar</a>
-        <a href="/kvarovi/statistika">📊 Statistika kvarova</a>
-      </div>
-    </details>
+    {% if has_permission(current_user,"breakdowns_view") %}
+<details class="side-group" {% if request.path.startswith('/kvarovi') %}open{% endif %}>
+  <summary>
+    <span class="side-icon main-nav-icon">⚠️</span>
+    <span>Kvarovi</span>
+    <span class="chevron">⌄</span>
+  </summary>
+  <div class="side-sub">
+    <a href="/kvarovi">📋 Evidencija kvarova</a>
+    {% if has_permission(current_user,"breakdowns_edit") %}<a href="/kvarovi/dodaj">➕ Prijavi kvar</a>{% endif %}
+    <a href="/kvarovi/statistika">📊 Statistika kvarova</a>
+  </div>
+</details>
+{% endif %}
 
     <details class="side-group" {% if request.path.startswith('/slobodne-voznje') %}open{% endif %}>
       <summary><span class="side-icon main-nav-icon">🚍</span><span>Slobodne vožnje</span><span class="chevron">⌄</span></summary>
