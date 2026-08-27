@@ -125,6 +125,10 @@ def init_breakdowns_db():
             solution TEXT, repair_date TEXT, downtime_hours REAL DEFAULT 0,
             created_by TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )""")
+        # Phase 2 additions: keep repair cost on each breakdown.
+        cols=[r[1] for r in c.execute("PRAGMA table_info(breakdowns)").fetchall()]
+        if "repair_cost" not in cols:
+            c.execute("ALTER TABLE breakdowns ADD COLUMN repair_cost REAL DEFAULT 0")
         c.execute("CREATE INDEX IF NOT EXISTS idx_breakdowns_vehicle ON breakdowns(vehicle)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_breakdowns_date ON breakdowns(breakdown_date)")
         c.commit()
@@ -4192,7 +4196,7 @@ def breakdowns():
 def breakdown_add():
     c=db(); vehicles=[r[0] for r in c.execute("SELECT registration FROM vehicles ORDER BY registration").fetchall()]; drivers=[r[0] for r in c.execute("SELECT name FROM drivers ORDER BY name").fetchall()]; lines=[r[0] for r in c.execute("SELECT name FROM lines ORDER BY name").fetchall()]
     if request.method=="POST":
-        f=request.form; c.execute("""INSERT INTO breakdowns(company,vehicle,breakdown_date,line,location,driver1,driver2,description,category,severity,status,solution,repair_date,downtime_hours,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(f.get("company",""),f.get("vehicle",""),f.get("breakdown_date") or date.today().isoformat(),f.get("line",""),f.get("location",""),f.get("driver1",""),f.get("driver2",""),f.get("description",""),f.get("category","Ostalo"),f.get("severity","Srednji"),f.get("status","Prijavljen"),f.get("solution",""),f.get("repair_date",""),float(f.get("downtime_hours") or 0),((auth_user()["full_name"] or auth_user()["username"]) if auth_user() else ""))); c.commit(); c.close(); flash("Kvar je evidentiran.","success"); return redirect(url_for("breakdowns"))
+        f=request.form; c.execute("""INSERT INTO breakdowns(company,vehicle,breakdown_date,line,location,driver1,driver2,description,category,severity,status,solution,repair_date,downtime_hours,repair_cost,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(f.get("company",""),f.get("vehicle",""),f.get("breakdown_date") or date.today().isoformat(),f.get("line",""),f.get("location",""),f.get("driver1",""),f.get("driver2",""),f.get("description",""),f.get("category","Ostalo"),f.get("severity","Srednji"),f.get("status","Prijavljen"),f.get("solution",""),f.get("repair_date",""),float(f.get("downtime_hours") or 0),float(f.get("repair_cost") or 0),((auth_user()["full_name"] or auth_user()["username"]) if auth_user() else ""))); c.commit(); c.close(); flash("Kvar je evidentiran.","success"); return redirect(url_for("breakdowns"))
     c.close(); return render_template("breakdown_form.html",row=None,vehicles=vehicles,drivers=drivers,lines=lines)
 
 @permission_required("breakdowns_edit")
@@ -4202,7 +4206,7 @@ def breakdown_edit(id):
     if not row: c.close(); abort(404)
     vehicles=[r[0] for r in c.execute("SELECT registration FROM vehicles ORDER BY registration").fetchall()]; drivers=[r[0] for r in c.execute("SELECT name FROM drivers ORDER BY name").fetchall()]; lines=[r[0] for r in c.execute("SELECT name FROM lines ORDER BY name").fetchall()]
     if request.method=="POST":
-        f=request.form; c.execute("""UPDATE breakdowns SET company=?,vehicle=?,breakdown_date=?,line=?,location=?,driver1=?,driver2=?,description=?,category=?,severity=?,status=?,solution=?,repair_date=?,downtime_hours=? WHERE id=?""",(f.get("company",""),f.get("vehicle",""),f.get("breakdown_date"),f.get("line",""),f.get("location",""),f.get("driver1",""),f.get("driver2",""),f.get("description",""),f.get("category","Ostalo"),f.get("severity","Srednji"),f.get("status","Prijavljen"),f.get("solution",""),f.get("repair_date",""),float(f.get("downtime_hours") or 0),id)); c.commit(); c.close(); flash("Kvar je ažuriran.","success"); return redirect(url_for("breakdowns"))
+        f=request.form; c.execute("""UPDATE breakdowns SET company=?,vehicle=?,breakdown_date=?,line=?,location=?,driver1=?,driver2=?,description=?,category=?,severity=?,status=?,solution=?,repair_date=?,downtime_hours=?,repair_cost=? WHERE id=?""",(f.get("company",""),f.get("vehicle",""),f.get("breakdown_date"),f.get("line",""),f.get("location",""),f.get("driver1",""),f.get("driver2",""),f.get("description",""),f.get("category","Ostalo"),f.get("severity","Srednji"),f.get("status","Prijavljen"),f.get("solution",""),f.get("repair_date",""),float(f.get("downtime_hours") or 0),float(f.get("repair_cost") or 0),id)); c.commit(); c.close(); flash("Kvar je ažuriran.","success"); return redirect(url_for("breakdowns"))
     c.close(); return render_template("breakdown_form.html",row=row,vehicles=vehicles,drivers=drivers,lines=lines)
 
 @permission_required("breakdowns_delete")
@@ -4213,22 +4217,45 @@ def breakdown_delete(id):
 @permission_required("breakdowns_view")
 @app.route("/kvarovi/statistika")
 def breakdown_statistics():
-    c=db(); total=c.execute("SELECT COUNT(*) FROM breakdowns").fetchone()[0]
-    by_vehicle=clean_rows(c.execute("SELECT vehicle,COUNT(*) total,SUM(CASE WHEN status='Otklonjen' THEN 1 ELSE 0 END) resolved FROM breakdowns GROUP BY vehicle ORDER BY total DESC LIMIT 20").fetchall())
-    by_category=clean_rows(c.execute("SELECT category,COUNT(*) total FROM breakdowns GROUP BY category ORDER BY total DESC").fetchall())
-    recent=clean_rows(c.execute("SELECT * FROM breakdowns ORDER BY breakdown_date DESC,id DESC LIMIT 10").fetchall()); c.close()
-    return render_template("breakdown_statistics.html",total=total,by_vehicle=by_vehicle,by_category=by_category,recent=recent)
+    date_from=request.args.get("date_from","").strip()
+    date_to=request.args.get("date_to","").strip() or date.today().isoformat()
+    vehicle=request.args.get("vehicle","").strip()
+    category=request.args.get("category","").strip()
+    c=db(); where=["1=1"]; args=[]
+    if date_from: where.append("breakdown_date>=?"); args.append(date_from)
+    if date_to: where.append("breakdown_date<=?"); args.append(date_to)
+    if vehicle: where.append("vehicle=?"); args.append(vehicle)
+    if category: where.append("category=?"); args.append(category)
+    w=" WHERE "+" AND ".join(where)
+    summary=clean_row(c.execute("SELECT COUNT(*) total, SUM(CASE WHEN status IN ('Prijavljen','U obradi') THEN 1 ELSE 0 END) open, SUM(CASE WHEN status='Otklonjen' THEN 1 ELSE 0 END) resolved, COALESCE(SUM(downtime_hours),0) downtime, COALESCE(SUM(repair_cost),0) repair_cost FROM breakdowns"+w,args).fetchone())
+    by_vehicle=clean_rows(c.execute("SELECT vehicle,COUNT(*) total,SUM(CASE WHEN status='Otklonjen' THEN 1 ELSE 0 END) resolved,COALESCE(SUM(downtime_hours),0) downtime,COALESCE(SUM(repair_cost),0) repair_cost FROM breakdowns"+w+" GROUP BY vehicle ORDER BY total DESC, repair_cost DESC LIMIT 50",args).fetchall())
+    by_category=clean_rows(c.execute("SELECT category,COUNT(*) total,COALESCE(SUM(repair_cost),0) repair_cost FROM breakdowns"+w+" GROUP BY category ORDER BY total DESC",args).fetchall())
+    by_month=clean_rows(c.execute("SELECT substr(breakdown_date,1,7) month,COUNT(*) total,COALESCE(SUM(downtime_hours),0) downtime,COALESCE(SUM(repair_cost),0) repair_cost FROM breakdowns"+w+" GROUP BY substr(breakdown_date,1,7) ORDER BY month DESC",args).fetchall())
+    vehicles=[r[0] for r in c.execute("SELECT DISTINCT vehicle FROM breakdowns WHERE vehicle<>'' ORDER BY vehicle").fetchall()]
+    categories=[r[0] for r in c.execute("SELECT DISTINCT category FROM breakdowns WHERE category<>'' ORDER BY category").fetchall()]
+    c.close()
+    return render_template("breakdown_statistics.html",summary=summary,by_vehicle=by_vehicle,by_category=by_category,by_month=by_month,vehicles=vehicles,categories=categories,date_from=date_from,date_to=date_to,vehicle=vehicle,category=category)
+
+@permission_required("breakdowns_view")
+@app.route("/kvarovi/vozilo/<path:vehicle>")
+def breakdown_vehicle_history(vehicle):
+    c=db()
+    rows=clean_rows(c.execute("SELECT * FROM breakdowns WHERE vehicle=? ORDER BY breakdown_date DESC,id DESC",(vehicle,)).fetchall())
+    summary=clean_row(c.execute("SELECT COUNT(*) total,COALESCE(SUM(downtime_hours),0) downtime,COALESCE(SUM(repair_cost),0) repair_cost,MAX(breakdown_date) last_date FROM breakdowns WHERE vehicle=?",(vehicle,)).fetchone())
+    by_category=clean_rows(c.execute("SELECT category,COUNT(*) total FROM breakdowns WHERE vehicle=? GROUP BY category ORDER BY total DESC",(vehicle,)).fetchall())
+    c.close()
+    return render_template("breakdown_vehicle_history.html",vehicle=vehicle,rows=rows,summary=summary,by_category=by_category)
 
 @permission_required("breakdowns_view")
 @app.route("/kvarovi/izvoz")
 def breakdown_export():
     from openpyxl import Workbook
-    c=db(); rows=c.execute("SELECT company,vehicle,breakdown_date,line,location,driver1,driver2,description,category,severity,status,solution,repair_date,downtime_hours FROM breakdowns ORDER BY breakdown_date DESC,id DESC").fetchall(); c.close()
-    wb=Workbook(); ws=wb.active; ws.title="Kvarovi"; headers=["Tvrtka","Vozilo","Datum","Linija","Mjesto","Vozač 1","Vozač 2","Opis kvara","Kategorija","Hitnost","Status","Rješenje","Datum popravka","Zastoj (h)"]; ws.append(headers)
+    c=db(); rows=c.execute("SELECT company,vehicle,breakdown_date,line,location,driver1,driver2,description,category,severity,status,solution,repair_date,downtime_hours,repair_cost FROM breakdowns ORDER BY breakdown_date DESC,id DESC").fetchall(); c.close()
+    wb=Workbook(); ws=wb.active; ws.title="Kvarovi"; headers=["Tvrtka","Vozilo","Datum","Linija","Mjesto","Vozač 1","Vozač 2","Opis kvara","Kategorija","Hitnost","Status","Rješenje","Datum popravka","Zastoj (h)","Trošak popravka"]; ws.append(headers)
     for r in rows: ws.append(list(r))
     for cell in ws[1]: cell.font=Font(bold=True)
     for col,w in enumerate([12,16,14,32,28,24,24,60,18,14,16,60,16,14],1): ws.column_dimensions[get_column_letter(col)].width=w
-    ws.freeze_panes="A2"; ws.auto_filter.ref=f"A1:N{max(1,ws.max_row)}"; bio=io.BytesIO(); wb.save(bio); bio.seek(0)
+    ws.freeze_panes="A2"; ws.auto_filter.ref=f"A1:O{max(1,ws.max_row)}"; bio=io.BytesIO(); wb.save(bio); bio.seek(0)
     return send_file(bio,as_attachment=True,download_name="evidencija_kvarova.xlsx",mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 @permission_required("drivers_view")
