@@ -142,6 +142,16 @@ html[data-theme="dark"] a.btn.excel-export-btn{
       </div>
     </details>
 
+
+    <details class="side-group" {% if request.path.startswith('/kvarovi') %}open{% endif %}>
+      <summary><span class="side-icon main-nav-icon">⚠️</span><span>Kvarovi</span><span class="chevron">⌄</span></summary>
+      <div class="side-sub">
+        <a href="/kvarovi">📋 Evidencija kvarova</a>
+        <a href="/kvarovi/dodaj">➕ Prijavi kvar</a>
+        <a href="/kvarovi/statistika">📊 Statistika kvarova</a>
+      </div>
+    </details>
+
     <details class="side-group" {% if request.path.startswith('/slobodne-voznje') %}open{% endif %}>
       <summary><span class="side-icon main-nav-icon">🚍</span><span>Slobodne vožnje</span><span class="chevron">⌄</span></summary>
       <div class="side-sub">
