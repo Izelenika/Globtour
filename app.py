@@ -4191,7 +4191,7 @@ def breakdowns():
     stats={"total":len(rows),"open":sum(r.get("status") in ("Prijavljen","U obradi") for r in rows),"resolved":sum(r.get("status")=="Otklonjen" for r in rows)}
     c.close(); return render_template("breakdowns.html",rows=rows,q=q,status=status,vehicle=vehicle,vehicles=vehicles,stats=stats)
 
-@permission_required("breakdowns_edit")
+@permission_required("breakdowns_view", "breakdowns_edit")
 @app.route("/kvarovi/dodaj",methods=["GET","POST"])
 def breakdown_add():
     c=db(); vehicles=[r[0] for r in c.execute("SELECT registration FROM vehicles ORDER BY registration").fetchall()]; drivers=[r[0] for r in c.execute("SELECT name FROM drivers ORDER BY name").fetchall()]; lines=[r[0] for r in c.execute("SELECT name FROM lines ORDER BY name").fetchall()]
@@ -4199,7 +4199,7 @@ def breakdown_add():
         f=request.form; c.execute("""INSERT INTO breakdowns(company,vehicle,breakdown_date,line,location,driver1,driver2,description,category,severity,status,solution,repair_date,downtime_hours,repair_cost,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(f.get("company",""),f.get("vehicle",""),f.get("breakdown_date") or date.today().isoformat(),f.get("line",""),f.get("location",""),f.get("driver1",""),f.get("driver2",""),f.get("description",""),f.get("category","Ostalo"),f.get("severity","Srednji"),f.get("status","Prijavljen"),f.get("solution",""),f.get("repair_date",""),float(f.get("downtime_hours") or 0),float(f.get("repair_cost") or 0),((auth_user()["full_name"] or auth_user()["username"]) if auth_user() else ""))); c.commit(); c.close(); flash("Kvar je evidentiran.","success"); return redirect(url_for("breakdowns"))
     c.close(); return render_template("breakdown_form.html",row=None,vehicles=vehicles,drivers=drivers,lines=lines)
 
-@permission_required("breakdowns_edit")
+@permission_required("breakdowns_view", "breakdowns_edit")
 @app.route("/kvarovi/<int:id>/uredi",methods=["GET","POST"])
 def breakdown_edit(id):
     c=db(); row=clean_row(c.execute("SELECT * FROM breakdowns WHERE id=?",(id,)).fetchone());
