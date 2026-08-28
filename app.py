@@ -3,28 +3,15 @@ from flask import send_file
 from functools import wraps
 import io
 from flask import Flask,render_template,request,redirect,url_for,flash,send_file,jsonify,send_from_directory,abort,session
-import sqlite3,os,io,uuid,hashlib,shutil
+import sqlite3,os,io,uuid,hashlib
 from datetime import date, datetime
 from openpyxl import Workbook
 from openpyxl.styles import Font,PatternFill,Alignment
 from openpyxl.utils import get_column_letter
-BASE=os.path.dirname(os.path.abspath(__file__))
-LOCAL_DB=os.path.join(BASE,"raspored.db")
-
-# Na Railwayu koristi trajni Volume montiran na /data.
-# Lokalno aplikacija i dalje koristi raspored.db pored app.py.
-DATA_DIR=os.environ.get("DATA_DIR","/data")
-if os.path.isdir(DATA_DIR):
-    os.makedirs(DATA_DIR,exist_ok=True)
-    DB=os.path.join(DATA_DIR,"raspored.db")
-    # Ako se Volume prvi put koristi, prekopiraj postojeću bazu iz projekta
-    # samo ako trajna baza još ne postoji.
-    if not os.path.exists(DB) and os.path.exists(LOCAL_DB):
-        shutil.copy2(LOCAL_DB,DB)
-else:
-    DATA_DIR=BASE
-    DB=LOCAL_DB
-
+BASE = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", BASE)
+os.makedirs(DATA_DIR, exist_ok=True)
+DB = os.path.join(DATA_DIR, "raspored.db")
 app=Flask(__name__)
 def hours_hm(value):
  try:
@@ -4251,13 +4238,40 @@ def breakdown_add():
 @permission_required("breakdowns_view", "breakdowns_edit")
 @app.route("/kvarovi/<int:id>/uredi",methods=["GET","POST"])
 def breakdown_edit(id):
-    c=db(); row=clean_row(c.execute("SELECT * FROM breakdowns WHERE id=?",(id,)).fetchone());
-    if not row: c.close(); abort(404)
-    vehicles=[r[0] for r in c.execute("SELECT registration FROM vehicles ORDER BY registration").fetchall()]; drivers=[r[0] for r in c.execute("SELECT name FROM drivers ORDER BY name").fetchall()]; lines=[r[0] for r in c.execute("SELECT name FROM lines ORDER BY name").fetchall()]
-    if request.method=="POST":
-        f=request.form; c.execute("""UPDATE breakdowns SET company=?,vehicle=?,breakdown_date=?,line=?,location=?,driver1=?,driver2=?,description=?,category=?,severity=?,status=?,solution=?,repair_date=?,downtime_hours=?,repair_cost=? WHERE id=?""",(f.get("company",""),f.get("vehicle",""),f.get("breakdown_date"),f.get("line",""),f.get("location",""),f.get("driver1",""),f.get("driver2",""),f.get("description",""),f.get("category","Ostalo"),f.get("severity","Srednji"),f.get("status","Prijavljen"),f.get("solution",""),f.get("repair_date",""),float(f.get("downtime_hours") or 0),float(f.get("repair_cost") or 0),id)); c.commit(); c.close(); flash("Kvar je ažuriran.","success"); return redirect(url_for("breakdowns"))
-    c.close(); return render_template("breakdown_form.html",row=row,vehicles=vehicles,drivers=drivers,lines=lines)
+    c=db()
+    row=clean_row(c.execute("SELECT * FROM breakdowns WHERE id=?",(id,)).fetchone())
+    if not row:
+        c.close()
+        abort(404)
 
+    user=auth_user()
+    is_admin=bool(user and str(user["role"] or "").strip().lower()=="admin")
+
+    # Zatvoreni kvar može uređivati samo administrator.
+    if str(row.get("status") or "").strip()=="Zatvoren" and not is_admin:
+        c.close()
+        flash("Ovaj kvar je zatvoren i može ga mijenjati samo administrator.","danger")
+        return redirect(url_for("breakdowns"))
+
+    vehicles=[r[0] for r in c.execute("SELECT registration FROM vehicles ORDER BY registration").fetchall()]
+    drivers=[r[0] for r in c.execute("SELECT name FROM drivers ORDER BY name").fetchall()]
+    lines=[r[0] for r in c.execute("SELECT name FROM lines ORDER BY name").fetchall()]
+
+    if request.method=="POST":
+        f=request.form
+        c.execute("""UPDATE breakdowns SET company=?,vehicle=?,breakdown_date=?,line=?,location=?,driver1=?,driver2=?,description=?,category=?,severity=?,status=?,solution=?,repair_date=?,downtime_hours=?,repair_cost=? WHERE id=?""",
+            (f.get("company",""),f.get("vehicle",""),f.get("breakdown_date"),f.get("line",""),
+             f.get("location",""),f.get("driver1",""),f.get("driver2",""),f.get("description",""),
+             f.get("category","Ostalo"),f.get("severity","Srednji"),f.get("status","Prijavljen"),
+             f.get("solution",""),f.get("repair_date",""),
+             float(f.get("downtime_hours") or 0),float(f.get("repair_cost") or 0),id))
+        c.commit()
+        c.close()
+        flash("Kvar je ažuriran.","success")
+        return redirect(url_for("breakdowns"))
+
+    c.close()
+    return render_template("breakdown_form.html",row=row,vehicles=vehicles,drivers=drivers,lines=lines)
 @permission_required("breakdowns_delete")
 @app.route("/kvarovi/<int:id>/izbrisi",methods=["POST"])
 def breakdown_delete(id):
