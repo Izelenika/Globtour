@@ -245,6 +245,40 @@ function updateThemeButton(){
   if(label) label.textContent=dark?'Bijeli način':'Tamni način';
 }
 </script>
+
+<script>
+/* Pamćenje otvorenog glavnog izbornika */
+(function(){
+  const groups = Array.from(document.querySelectorAll('.side-nav details.side-group'));
+  const key = 'globtour-open-side-group';
+
+  // Ako je trenutačna stranica unutar nekog menija, taj meni ima prednost.
+  const current = groups.find(g => g.querySelector('a[href="'+window.location.pathname+'"]')) ||
+                  groups.find(g => Array.from(g.querySelectorAll('a')).some(a => {
+                    const href = a.getAttribute('href') || '';
+                    return href && href !== '/' && window.location.pathname.startsWith(href.split('?')[0]);
+                  }));
+
+  if (current) {
+    groups.forEach(g => { g.open = (g === current); });
+    localStorage.setItem(key, String(groups.indexOf(current)));
+  } else {
+    const saved = localStorage.getItem(key);
+    if (saved !== null && groups[Number(saved)]) groups[Number(saved)].open = true;
+  }
+
+  groups.forEach((group, index) => {
+    group.addEventListener('toggle', function(){
+      if (!group.open) return;
+      groups.forEach((other, otherIndex) => {
+        if (otherIndex !== index) other.open = false;
+      });
+      localStorage.setItem(key, String(index));
+    });
+  });
+})();
+</script>
+
 <script>
 /* Globalni pretraživi padajući izbornici */
 (function(){
