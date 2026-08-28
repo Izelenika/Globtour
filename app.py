@@ -4224,7 +4224,7 @@ def breakdowns():
     if vehicle: sql+=" AND vehicle=?"; args.append(vehicle)
     rows=clean_rows(c.execute(sql+" ORDER BY breakdown_date DESC, id DESC",args).fetchall())
     vehicles=[r[0] for r in c.execute("SELECT DISTINCT vehicle FROM breakdowns WHERE vehicle<>'' ORDER BY vehicle").fetchall()]
-    stats={"total":len(rows),"open":sum(r.get("status") in ("Prijavljen","U obradi") for r in rows),"resolved":sum(r.get("status")=="Otklonjen" for r in rows)}
+    stats={"total":len(rows),"open":sum(r.get("status") in ("Prijavljen","U obradi") for r in rows),"closed":sum(r.get("status")=="Zatvoren" for r in rows)}
     c.close(); return render_template("breakdowns.html",rows=rows,q=q,status=status,vehicle=vehicle,vehicles=vehicles,stats=stats)
 
 @permission_required("breakdowns_view", "breakdowns_edit")
