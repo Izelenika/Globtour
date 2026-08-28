@@ -13,10 +13,11 @@
   </div>
 </div>
 <div class="panel"><form method="post"><input type="hidden" name="return_date" value="{{return_date if return_date else (row.date if row else today)}}"><input type="hidden" name="source_date" value="{{row.source_date if row and row.source_date else (return_date if return_date else (row.date if row else today))}}">
-{% if driver_conflict_warning %}
+{% if conflict_warning %}
 <div class="warning-panel">
-  <strong>⚠ Upozorenje o vozaču</strong>
-  <p>{{driver_conflict_warning}}</p>
+  <strong>⚠ Upozorenje o konfliktu rasporeda</strong>
+  {% if driver_conflict_warning %}<p><strong>Vozač:</strong> {{driver_conflict_warning}}</p>{% endif %}
+  {% if vehicle_conflict_warning %}<p><strong>Vozilo:</strong> {{vehicle_conflict_warning}}</p>{% endif %}
   <label class="warning-confirm"><input type="checkbox" name="force_conflict" value="1"> Zanemari upozorenje i ipak spremi raspored</label>
   <button type="submit" class="btn warning-btn">✓ Prihvati i spremi</button>
 </div>
