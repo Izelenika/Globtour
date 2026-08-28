@@ -3953,10 +3953,31 @@ def driver_conflicts(c,id,d,d1,d2):
       ORDER BY time,line""",(id,d,*names,*names)).fetchall()
 
 def vehicle_conflicts(c,id,d,vehicle):
- if not vehicle:
+ selected=set(normalize_vehicle_value(vehicle).split(" / ")) if vehicle else set()
+ selected={x.strip() for x in selected if x and x.strip()}
+ if not selected:
   return []
- return c.execute("""SELECT * FROM schedules WHERE id<>? AND date=? AND TRIM(vehicle)=TRIM(?) ORDER BY time,line""",
-                  (id,d,vehicle)).fetchall()
+ rows=c.execute("SELECT * FROM schedules WHERE id<>? AND date=? ORDER BY time,line",(id,d)).fetchall()
+ conflicts=[]
+ for r in rows:
+  existing=set(normalize_vehicle_value(r["vehicle"] or "").split(" / "))
+  existing={x.strip() for x in existing if x and x.strip()}
+  if selected & existing:
+   conflicts.append(r)
+ return conflicts
+
+def vehicle_conflict_warning(conflicts, vehicle):
+ selected=set(normalize_vehicle_value(vehicle).split(" / ")) if vehicle else set()
+ selected={x.strip() for x in selected if x and x.strip()}
+ if not conflicts or not selected:
+  return ""
+ parts=[]
+ for r in conflicts:
+  existing=set(normalize_vehicle_value(r["vehicle"] or "").split(" / "))
+  shared=sorted(selected & {x.strip() for x in existing if x and x.strip()})
+  if shared:
+   parts.append(f"{', '.join(shared)} je već raspoređen na liniji {r['line']} u {r['time'] or ''}")
+ return "UPOZORENJE: " + "; ".join(parts) + ". Ako je to namjerno, klikni „Prihvati i spremi“."
 
 
 def driver_conflict_warning(conflicts, d1, d2):
@@ -4004,18 +4025,22 @@ def fill_planned():
   errors=validate(c,0,d,d1,d2,v)
   conflict=driver_conflicts(c,0,d,d1,d2)
   warning=driver_conflict_warning(conflict,d1,d2)
+  vehicle_conflict=vehicle_conflicts(c,0,d,v)
+  vehicle_warning=vehicle_conflict_warning(vehicle_conflict,v)
+  combined_warning=" ".join(x for x in (warning,vehicle_warning) if x)
   confirmed=(request.form.get("confirm_driver_conflict")=="1" or request.form.get("force_conflict")=="1")
   if not t:
    errors.append("Odabrana linija nema uneseno vrijeme polaska.")
   if errors:
    for e in errors: flash(e,"danger")
-  elif warning and not confirmed:
+  elif combined_warning and not confirmed:
    c.close()
    planned={"date":d,"line":row["name"],"time":t,"driver1":d1,"driver2":d2,
             "vehicle":v,"note":note,"group_name":row["schedule_day"],"source_date":source_date}
    return render_template("schedule_form.html",mode="add",row=planned,
                           drivers=drivers,vehicles=vehicles,lines=lines,
-                          return_date=return_date,driver_conflict_warning=warning)
+                          return_date=return_date,driver_conflict_warning=warning,
+                          vehicle_conflict_warning=vehicle_warning,conflict_warning=combined_warning)
   else:
    c.execute("""INSERT INTO schedules
                 (date,line,time,driver1,driver2,vehicle,note,group_name,source_date)
@@ -4047,18 +4072,22 @@ def add_schedule():
   e=validate(c,0,d,d1,d2,v)
   conflict=driver_conflicts(c,0,d,d1,d2)
   warning=driver_conflict_warning(conflict,d1,d2)
+  vehicle_conflict=vehicle_conflicts(c,0,d,v)
+  vehicle_warning=vehicle_conflict_warning(vehicle_conflict,v)
+  combined_warning=" ".join(x for x in (warning,vehicle_warning) if x)
   confirmed=(request.form.get("confirm_driver_conflict")=="1" or request.form.get("force_conflict")=="1")
   if not t: e.append("Odabrana linija nema uneseno vrijeme polaska.")
   if e:
    for x in e:flash(x,"danger")
-  elif warning and not confirmed:
+  elif combined_warning and not confirmed:
    c.close()
    planned={"date":d,"line":line,"time":t,"driver1":d1,"driver2":d2,"vehicle":v,
             "note":note,"group_name":group}
    return render_template("schedule_form.html",mode="add",row=planned,
                           drivers=drivers,vehicles=vehicles,lines=lines,
                           return_date=request.form.get("return_date") or d,
-                          driver_conflict_warning=warning)
+                          driver_conflict_warning=warning,
+                          vehicle_conflict_warning=vehicle_warning,conflict_warning=combined_warning)
   else:
    c.execute("INSERT INTO schedules(date,line,time,driver1,driver2,vehicle,note,group_name,source_date) VALUES(?,?,?,?,?,?,?,?,?)",(d,line,t,d1,d2,v,note,group,d))
    c.commit();c.close();flash("Raspored je dodan.","success");return redirect(url_for("schedule",**{"from":d}))
@@ -4079,17 +4108,21 @@ def edit_schedule(id):
   e=validate(c,id,d,d1,d2,v)
   conflict=driver_conflicts(c,id,d,d1,d2)
   warning=driver_conflict_warning(conflict,d1,d2)
+  vehicle_conflict=vehicle_conflicts(c,id,d,v)
+  vehicle_warning=vehicle_conflict_warning(vehicle_conflict,v)
+  combined_warning=" ".join(x for x in (warning,vehicle_warning) if x)
   confirmed=(request.form.get("confirm_driver_conflict")=="1" or request.form.get("force_conflict")=="1")
   if not t:e.append("Odabrana linija nema uneseno vrijeme polaska.")
   if e:
    for x in e:flash(x,"danger")
-  elif warning and not confirmed:
+  elif combined_warning and not confirmed:
    c.close()
    planned={"date":d,"line":line,"time":t,"driver1":d1,"driver2":d2,"vehicle":v,
             "note":note,"group_name":group}
    return render_template("schedule_form.html",mode="edit",row=planned,
                           drivers=drivers,vehicles=vehicles,lines=lines,
-                          return_date=return_date,driver_conflict_warning=warning)
+                          return_date=return_date,driver_conflict_warning=warning,
+                          vehicle_conflict_warning=vehicle_warning,conflict_warning=combined_warning)
   else:
    c.execute("UPDATE schedules SET date=?,line=?,time=?,driver1=?,driver2=?,vehicle=?,note=?,group_name=?,source_date=? WHERE id=?",(d,line,t,d1,d2,v,note,group,d,id))
    c.commit();c.close();flash("Raspored je izmijenjen.","success");return redirect(url_for("schedule",**{"from":return_date,"to":return_date}))
