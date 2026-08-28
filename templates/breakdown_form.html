@@ -1,7 +1,14 @@
 {% extends "base.html" %}{% block content %}
 <div class="title"><div><h1>{{'Uredi kvar' if row else 'Prijavi kvar'}}</h1><div class="muted">Evidencija problema na vozilu tijekom vožnje</div></div><a class="btn secondary" href="/kvarovi">← Natrag</a></div>
 <form method="post" class="panel form-grid">
-<div class="field"><label>Tvrtka / baza</label><input name="company" value="{{row.company if row else ''}}"></div>
+<div class="field"><label>Tvrtka / baza</label>
+<select name="company">
+<option value="">Odaberi tvrtku / bazu</option>
+{% for x in ['GLOBTOUR','CROATIABUS','JADRANEKSPRES KOTOR'] %}
+<option value="{{x}}" {% if row and row.company==x %}selected{% endif %}>{{x}}</option>
+{% endfor %}
+</select>
+</div>
 <div class="field"><label>Vozilo *</label><select name="vehicle" required><option value="">Odaberi vozilo</option>{% for x in vehicles %}<option value="{{x}}" {% if row and row.vehicle==x %}selected{% endif %}>{{x}}</option>{% endfor %}</select></div>
 <div class="field"><label>Datum kvara *</label><input type="date" name="breakdown_date" required value="{{row.breakdown_date if row else today}}"></div>
 <div class="field"><label>Linija</label><select name="line"><option value="">Odaberi liniju</option>{% for x in lines %}<option value="{{x}}" {% if row and row.line==x %}selected{% endif %}>{{x}}</option>{% endfor %}</select></div><div class="field"><label>Mjesto</label><input name="location" value="{{row.location if row else ''}}"></div><div class="field"><label>Kategorija</label><select name="category">{% for x in ['Motor','Mjenjač','Zrak','AdBlue','Klima','Elektrika','Gume / kotači','Gorivo','Voda / hlađenje','Karoserija','Ostalo'] %}<option {% if row and row.category==x %}selected{% endif %}>{{x}}</option>{% endfor %}</select></div>
