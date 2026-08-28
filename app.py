@@ -3,12 +3,28 @@ from flask import send_file
 from functools import wraps
 import io
 from flask import Flask,render_template,request,redirect,url_for,flash,send_file,jsonify,send_from_directory,abort,session
-import sqlite3,os,io,uuid,hashlib
+import sqlite3,os,io,uuid,hashlib,shutil
 from datetime import date, datetime
 from openpyxl import Workbook
 from openpyxl.styles import Font,PatternFill,Alignment
 from openpyxl.utils import get_column_letter
-BASE=os.path.dirname(os.path.abspath(__file__)); DB=os.path.join(BASE,"raspored.db")
+BASE=os.path.dirname(os.path.abspath(__file__))
+LOCAL_DB=os.path.join(BASE,"raspored.db")
+
+# Na Railwayu koristi trajni Volume montiran na /data.
+# Lokalno aplikacija i dalje koristi raspored.db pored app.py.
+DATA_DIR=os.environ.get("DATA_DIR","/data")
+if os.path.isdir(DATA_DIR):
+    os.makedirs(DATA_DIR,exist_ok=True)
+    DB=os.path.join(DATA_DIR,"raspored.db")
+    # Ako se Volume prvi put koristi, prekopiraj postojeću bazu iz projekta
+    # samo ako trajna baza još ne postoji.
+    if not os.path.exists(DB) and os.path.exists(LOCAL_DB):
+        shutil.copy2(LOCAL_DB,DB)
+else:
+    DATA_DIR=BASE
+    DB=LOCAL_DB
+
 app=Flask(__name__)
 def hours_hm(value):
  try:
@@ -29,7 +45,7 @@ app.config["SESSION_PERMANENT"] = False
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
-UPLOAD_DIR=os.path.join(BASE,"uploads","permits")
+UPLOAD_DIR=os.path.join(DATA_DIR,"uploads","permits")
 os.makedirs(UPLOAD_DIR,exist_ok=True)
 ALLOWED_PERMIT_EXTENSIONS={"pdf","jpg","jpeg","png","webp"}
 def permit_file_allowed(name):
